@@ -5,6 +5,7 @@ import time
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 
@@ -200,23 +201,9 @@ async def get_catalog_filtered(type: str, id: str, extra: str):
 
 @app.get("/meta/{type}/{id}.json")
 async def get_meta(type: str, id: str):
-    # Cloudflare blocks default Python requests; we must spoof a real browser
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-
     if id.startswith("kitsu:"):
-        try:
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
-                for meta_type in ("anime", type, "series", "movie"):
-                    resp = await client.get(f"https://anime-kitsu.strem.fun/meta/{meta_type}/{id}.json")
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        if data.get("meta"):
-                            data["meta"]["type"] = "anime"
-                            return data
-        except Exception as e:
-            print(f"[ERROR] Kitsu Proxy Failed: {e}")
+        # Instantly redirects the Nuvio app to fetch the metadata itself using your local IP
+        return RedirectResponse(url=f"https://anime-kitsu.strem.fun/meta/anime/{id}.json")
 
     if id.startswith("anilist:"):
         anilist_id = int(id.split(":")[1])
@@ -227,27 +214,22 @@ async def get_meta(type: str, id: str):
           }
         }
         """
-        try:
-            async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
-                resp = await client.post("https://graphql.anilist.co",
-                                         json={"query": query, "variables": {"id": anilist_id}})
-                item = resp.json().get("data", {}).get("Media")
-                if item:
-                    title = item["title"].get("english") or item["title"].get("romaji")
-                    poster = item["coverImage"].get("extraLarge")
-                    return {
-                        "meta": {
-                            "id": id,
-                            "type": "anime",
-                            "name": title,
-                            "poster": poster,
-                            "background": item.get("bannerImage") or poster,
-                            "description": clean_html(item.get("description")),
-                            "releaseInfo": str(item.get("seasonYear") or ""),
-                            "genres": item.get("genres", []),
-                        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post("https://graphql.anilist.co", json={"query": query, "variables": {"id": anilist_id}})
+            item = resp.json().get("data", {}).get("Media")
+            if item:
+                title = item["title"].get("english") or item["title"].get("romaji")
+                poster = item["coverImage"].get("extraLarge")
+                return {
+                    "meta": {
+                        "id": id,
+                        "type": "anime",
+                        "name": title,
+                        "poster": poster,
+                        "background": item.get("bannerImage") or poster,
+                        "description": clean_html(item.get("description")),
+                        "releaseInfo": str(item.get("seasonYear") or ""),
+                        "genres": item.get("genres", []),
                     }
-        except Exception as e:
-            print(f"[ERROR] AniList Proxy Failed: {e}")
-
+                }
     return {"meta": {}}
