@@ -7,6 +7,7 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import httpx
 
 GENRES = [
@@ -128,7 +129,13 @@ def clean_html(raw_text: str | None) -> str:
 
 @app.get("/manifest.json")
 async def get_manifest():
-    return MANIFEST
+    return JSONResponse(
+        content=MANIFEST,
+        headers={
+            "Cache-Control": "public, max-age=3600, s-maxage=86400",
+            "CDN-Cache-Control": "max-age=86400",
+        },
+    )
 
 async def process_catalog(catalog_id: str, extra_str: str = ""):
     cache_key = f"{catalog_id}:{extra_str}"
